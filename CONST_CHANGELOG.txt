@@ -1,0 +1,1571 @@
+This file includes migration steps for each release of c2cgeoportal.
+
+
+Version 1.3.1
+=============
+
+1. One can now define a "default mobile theme" in the config.yaml configuration
+   file. The default theme is the theme loaded when no theme is specified in
+   the query string of the mobile app URL (/mobile). For example:
+
+       mobile_default_theme: my_main_mobile_theme
+
+   Not setting the mobile_default_theme in config.yaml is perfectly valid. In
+   that case there's no "default mobile theme", and no theme information will
+   be passed to the config.js template.
+
+   Even if you don't need a "default mobile theme" it is recommended to set
+   mobile_default_theme to "None" in config.yaml, with an appropriate text
+   describing the role of this setting. For example:
+
+       # The name of the theme to use as the default theme for the
+       # mobile app. The default theme is the theme loaded when no
+       # theme name is specified in the mobile app URL. If unset
+       # then there's no default theme, and no theme information
+       # will be passed to the config.js template.
+       mobile_default_theme:
+
+2. To make the `X-UA-Compatible` work again in the
+   `<project>/template/index.html` file the following block should be moved
+   below all the <meta> tags:
+
+        % if not no_redirect and mobile_url is not None:
+                <script>
+                    if(('ontouchstart' in window) || window.DocumentTouch && document instanceof DocumentTouch) {
+                        window.location = "${mobile_url}";
+                    }
+                </script>
+        % endif
+
+3. The default value for `fallThrough` changed in OpenLayers. This has caused
+   a major regression in the mobile app, where longpress queries no longer
+   work.
+
+   To fix it edit osmtest/static/mobile/config.js and add `fallThrough: true`
+   to the map config, before `theme: null` for example:
+
+
+        App.map = new OpenLayers.Map({
+            fallThrough: true, // required for longpress queries
+            theme: null,
+            ...
+        });
+
+
+Version 1.3
+===========
+
+1. The c2cgeoportal mobile application now supports authentication, and dynamic
+   theme/layer configuration based on the database configuration. This requires
+   a few changes to existing applications.
+
+   The c2cgeoportal mobile functions to be configured as view callables in the
+   application are now part of the c2cgeoportal entry.py view module. This
+   change requires changing the way mobile views should be defined in the
+   application. Edit osmtest/__init__.py and replace the entire "# mobile
+   views and routes" block by the one provided in the "mobile" chapter of the
+   integrator doc [*]. Do not forget to replace "<package_name>" by
+   "osmtest" in the new route and view definitions.
+
+   [*] <http://docs.camptocamp.net/c2cgeoportal/integrator/mobile.html#adding-mobile-routes-and-views>
+
+   To use the "Login" view component as documented in the mobile chapter of the
+   documentation you need to have the following line in
+   osmtest/static/mobile/config.js:
+
+   App.info = '${info | n}';
+
+   You should add this line even if you don't use the "Login" component.
+
+2. Adding the following entries to all the ``root`` lists in
+   ``jsbuild/app.cfg`` is recommended:
+
+        osmtest/static/lib/cgxp/geoext.ux/ux/WMSBrowser/lib
+        osmtest/static/lib/cgxp/geoext.ux/ux/StreetViewPanel
+
+3. Adding the following entry at the end of the ``first`` sections
+   of all files (except the language ones) in ``jsbuild/app.cfg`` is recommended:
+
+        proj4js/lib/projCode/merc.js
+
+4. Adding the following entry to the ``include`` section
+   of ``[lang-fr.js]`` in ``jsbuild/app.cfg`` recommended:
+
+        GeoExt.ux/locale/WMSBrowser-fr.js
+
+   Same for ``[lang-de.js]``.
+
+5. Auto redirection to mobile application has been added.
+
+   Add the following in the ``osmtest/templates/index.html`` for the main
+   application just after the ``<head>`` opening tag:
+
+        % if not no_redirect and mobile_url is not None:
+                <script>
+                    if(('ontouchstart' in window) || window.DocumentTouch && document instanceof DocumentTouch) {
+                        window.location = "${mobile_url}";
+                    }
+                </script>
+        % endif
+
+   You'll also need to add the following translations for the mobile
+   application in ``config.js``:
+
+           // redirect to standard application
+           'redirect_msg': "Vous utilisez la version mobile. Vous pouvez aussi" +
+               " consulter la <a href='${'${url}'}'>version standard</a>.",
+           'close': "Fermer"
+
+   Once redirected to the mobile version, tablet users can go back to standard
+   application. In order for them to navigate in the map comfortably, it's
+   recommended to add the support for pinch zoom. You'll need to add the
+   following to the [app.js] section of ``jsbuild/app.cfg`` right below the
+   include for ``Navigation.js``:
+
+       OpenLayers/Control/PinchZoom.js
+
+6. Adding ``geodesic: true`` to the ``OpenLayers.Control.ScaleLine`` configuration
+   in ``viewer.js``, ``edit.js`` (as well as other templates or Javascript files
+   using that kind of control) might solve incorrect scalelines with mercator
+   projections.
+
+7. The geolocate functionality of the mobile application has been refactored.
+   It is required to add the following line to the list of includes in
+   ``jsbuild/mobile.cfg``:
+
+        OpenLayers/Control/Zoom.js
+
+8. In the file `apache/wsgi.conf.in` remove the trailing '/' in the `edit`
+   `RewriteRule`.
+
+-RewriteRule ^${vars:apache-entry-point}edit/?$ /${vars:instanceid}/wsgi/edit/ [PT]
++RewriteRule ^${vars:apache-entry-point}edit/?$ /${vars:instanceid}/wsgi/edit [PT]
+
+9. On the API help we have some issue with IE7 and IE8, to fix them you
+   should apply the same modification as in the following commit:
+   https://github.com/camptocamp/c2cgeoportal/commit/3a8f0e4d87ab4199d474c0e8ed6cc33038e2e795
+   or regenerate the API help:
+
+        ./buildout/bin/pcreate -s c2cgeoportal_create /tmp/osmtest package=osmtest
+        cp -r /tmp/osmtest/osmtest/templates/api/apihelp.html osmtest/templates/api
+        cp -r /tmp/osmtest/osmtest/templates/api/xapihelp.html osmtest/templates/api
+        rm -rf /tmp/osmtest
+
+10. c2cgeoportal 1.3 requires papyrus 0.10dev1. If papyrus is set to 0.9 or
+    lower in the [versions] section of buildout.cfg, change it to 0.10dev1.
+
+11. In the file `osmtest/templates/edit.html` you should add
+    the `${extra_params}` value:
+
+-        <script type="text/javascript" src="${request.route_url('edit.js')}"></script>
++        <script type="text/javascript" src="${request.route_url('edit.js')}${extra_params}"></script>
+
+12. Don't need anymore to specify the queryableLayers in th API.
+    Than you should do on your `osmtest/templates/api/api.js`
+    and in `osmtest/templates/api/xapi.js` do this replacement:
+
+-    this.queryableLayers = [<...>];
++    this.queryableLayers = ${queryable_layers|n};
+
+
+Version 1.2
+===========
+
+1. A new ``Settings`` view has been added to the mobile application as well as a
+   ``custom.scss`` stylesheet file. Both are intended to be customized by the
+   integrator.
+   Check out documentation to find information about how to upgrade an existing
+   c2cgeoportail project or how the settings view can be customized.
+
+   As minimal you should get the new files:
+
+        ./buildout/bin/pcreate -s c2cgeoportal_create \
+                /tmp/osmtest package=osmtest
+        cp -r /tmp/osmtest/osmtest/static/mobile/custom.scss osmtest/static/mobile/
+        cp -r /tmp/osmtest/osmtest/static/mobile/app/ osmtest/static/mobile/
+        rm -rf /tmp/osmtest
+
+2. CGXP plugin WFSGetFeature now requires that the themes are explicitly passed
+   in its configuration in osmtest/templates/viewer.js using the following
+   parameter:
+
+    themes: THEMES
+
+3. In the mobile application, the buttons' text in the picker for the layer
+   switcher (on phones) can now be translated.
+
+   Add the following in the OpenLayers.Lang.xx section of your `config.js` file:
+
+    // picker
+    'layer_switcher.cancel': 'Annuler',
+    'layer_switcher.done': 'OK'
+
+4. A new caching system has been introduced and it has to be configured in the
+   config.yaml file. So you have to edit ``config.yaml.in`` and
+   ``config_child.yaml.in`` files to add the following configuration:
+
+    # The dogpile.cache configuration.
+    #
+    # Do not touch if unsure.
+    #
+    # The cache section below takes three properties:
+    #
+    # - backend: the name of the cache backend (ex: dogpile.cache.memory,
+    #   dogpile.cache.memcached, etc.). Mandatory.
+    # - expiration_time: the cache expiration time. Optional (infinite if not
+    #   specified).
+    # - arguments: backend-specific arguments. Optional.
+    #
+    # Here is a dogpile.cache configuration example for the memcached backend
+    # (equivalent of http://dogpilecache.readthedocs.org/en/latest/api.html#dogpile.cache.backends.memcached.MemcachedBackend)
+    # cache:
+    #   backend: dogpile.cache.memcached
+    #   expiration_time: 3600
+    #   arguments:
+    #     url: 127.0.0.1:11211
+    cache:
+      backend: dogpile.cache.memory
+
+   The caching system also refactored the way errors are handled: all errors
+   are now stored in ``serverError``, while ``themesError`` is not used
+   anymore.  So you have to edit all template files (``templates/viewer.js``,
+   ``templates/edit.js``, ``templates/apiviewer.js``) to remove the following
+   line:
+
+    /* errors (if any): ${themesError | n} */
+
+5. Some updates will be do in the `edit.js` and in the `viewer.js`, the actual code
+   will still work, it your interested in have a look at:
+   https://github.com/camptocamp/c2cgeoportal/pull/354
+
+6. CGXP now uses the GeOrchestra styler, which includes its own en, fr,
+   and de translations. Edit jsbuild/app.cfg, and in the [lang-en.js],
+   [lang-fr.js], and [lang-de.js] sections replace
+
+   - Styler/resources/lang/en.js by Styler/lang/en.js
+   - Styler/resources/lang/fr.js by Styler/lang/fr.js
+   - Styler/resources/lang/de.js by Styler/lang/de.js
+
+   The Styler/resources/lang/en.js, Styler/resources/lang/fr.js, and
+   Styler/resources/lang/de.js files no longer exist, so you will get
+   an error during the execution of the jsbuild part if you do not
+   do these replacements.
+
+7. It is now possible to disable the administration interface, for example on
+   productive instances of the application. To do so:
+
+   a. Edit the main() function in osmtest/__init__.py and use
+
+       from pyramid.settings import asbool
+       if asbool(config.get_settings().get('enable_admin_interface')):
+           config.formalchemy_admin('admin', package='osmtest',
+                   view='fa.jquery.pyramid.ModelView', factory=FAModels)
+
+      instead of
+
+       config.formalchemy_admin('admin', package='osmtest',
+               view='fa.jquery.pyramid.ModelView', factory=FAModels)
+
+   b. Add the following parameter in the ``[app:app]`` section of
+      production.ini.in/developement.ini.in:
+
+       enable_admin_interface = ${vars:enable_admin_interface}
+
+   c. Add the following parameter in the ``[vars]`` section of buildout.cfg:
+
+       enable_admin_interface = true
+
+   d. Adapt the latter parameter value in the buildout_*.cfg files.
+
+8. CGXP's FullTextSearch's plugin now allows to group results by their
+   corresponding type.
+
+   a. We recommend you add the following to the root list in the app.js section
+      of ``app.cfg``:
+
+       osmtest/static/lib/cgxp/ext.ux/GroupComboBox
+
+   b. If you want the results to be grouped, add a ``grouping`` option to the
+      FullTextSearch plugin in ``viewer.js`` as well as the following line in
+      the include list in the app.js section of ``app.cfg``:
+
+       Ext/ux/form/GroupComboBox.js
+
+9. A new parameter, layerManagerUrl, has been added to the cgxp_redlining plugin,
+   to fix a problem with the base url used to access various resources used in
+   the related layerManager widget:
+
+        {
+            ptype: "cgxp_redlining",
+            toggleGroup: "maptools",
+            actionTarget: "center.tbar",
+            layerManagerUrl: "${request.static_url('osmtest:static/lib/cgxp/sandbox/LayerManager/ux/')}"
+        },
+
+10. The ``functionality`` variable available in Mako templates (e.g. ``viewer.js``)
+    used to be a string. It is now a dict.
+    See https://github.com/camptocamp/c2cgeoportal/pull/400. To accomodate
+    this change in your project you need to
+
+    - Remove the FUNCTIONALITY JavaScript variable from viewer.js and
+      edit.js. This line:
+
+          var FUNCTIONALITY = ${functionality | n};
+
+    - Change the value for the ``defaultBaseLayerRef`` config option of the
+      MapOpacitySlider plugin from ``FUNCTIONALITY.default_basemap[0]`` to:
+
+          defaultBaseLayerRef: "${functionality['default_basemap'][0] | n}"
+
+    Also, if you used ``c2cgeoportal.lib.functionality.get_functionality``
+    in your templates you no longer need to, use ``functionality`` directly.
+
+11. checker_pdf requires that the central coordinates and scale of the map to
+    print when checking the printing service are provided in ``config.yaml.in``.
+    Add the following after the ``tilecache_url``:
+
+        # Checker configuration
+        checker:
+            print_template: 1 A4 portrait
+            print_center_lon: to be defined
+            print_center_lat: to be defined
+            print_scale: 10000
+            fulltextsearch: text to search
+
+12. c2cgeoportal applications created with the c2cgeoportal 1.2 scaffolds
+    include two JavaScript APIs : Simple API and Extended API. This has
+    a few implications on existing applications, whether you want your
+    applications to expose the JavaScript APIs or not.
+
+    Project Lang Files (osmtest/static/js/Lang)
+
+        You need to split each lang file into two files. For example,
+        osmtest/static/js/Proj/Lang/fr.js should be splitted into
+        osmtest/static/js/Proj/Lang/fr.js and
+        osmtest/static/js/Proj/Lang/GeoExt-fr.js. The former should include
+        OpenLayers-based translations only, and the latter should include
+        GeoExt-based translations only. If your application does not have
+        GeoExt-based translations (which is a good thing), you will need to
+        create an empty osmtest/static/js/Proj/Lang/GeoExt-fr.js file. And you
+        obviously need to repeat this GeoExt-en.js and GeoExt-de.js.
+
+    JavaScript Build Config (jsbuild/app.cfg)
+
+        The osmtest/static/js/Proj/Lang/GeoExt-<code>.js files should now be
+        listed in the ``include`` list of ``[lang-<code>.js]`` sections. For
+        example:
+
+            [lang-fr.js]
+            root =
+                ...
+            first =
+                OpenLayers/Lang/fr.js
+            include =
+                Ext/src/locale/ext-lang-fr.js
+                GeoExt/locale/GeoExt-fr.js
+            # FeatureEditing/resources/lang/en.js
+                FeatureEditing/resources/lang/fr.js
+                Styler/lang/fr.js
+                locale/fr.js
+                CGXP/locale/fr.js
+                Proj/Lang/fr.js
+                Proj/Lang/GeoExt-fr.js
+            exclude =
+                OpenLayers/Lang.js
+
+        And if you do want your application to expose the APIs you need to edit
+        jsbuild/app.cfg, remove the previous ``[api.js]`` section and add new
+        sections ``[api.js]``, ``[api-lang-en.js]``, ``[api-lang-fr.js]``,
+        ``[api-lang-de.js]``, and ``[xapi.js]``. See
+        https://github.com/camptocamp/c2cgeoportal/blob/master/c2cgeoportal/scaffolds/create/jsbuild/app.cfg_tmpl
+        for the actual content of these new sections.
+
+    Application-level CSS
+
+        The osmtest/static/css/proj.css include the application-level CSS.
+        This file should be splitted into three files:
+
+        - osmtest/static/css/proj.css
+        - osmtest/static/css/proj-map.css
+        - osmtest/static/css/proj-widgets.css
+
+        proj-map.css is used by the main application viewers (viewer.js and
+        edit.js), the Simple API, and the Extended API. It shouldn't include
+        any Ext-related CSS.
+
+        proj-widgets.css is used by the main application viewers and the Extended
+        API. It should include CSS that for the CGXP plugins.
+
+        proj.css is used by the main application viewers only. It should there
+        include CSS that is relative to the application layout.
+
+        If you don't care about the APIs and do not want to split your proj.css
+        file into three files as explained above you will still need to create
+        empty files for proj-map.css and proj-widgets.css, otherwise the cssmin
+        buildout part will fail, and your application pages will cause 404s
+        in debug mode.
+
+    Make index.html and edit.html load the new CSS files in debug mode.
+
+        You need to edit index.html and edit.html to make these pages load
+        the new proj-map.css and proj-widgets.css files when in debug mode.
+        This is done by adding the following <link> tags below that for
+        proj.css:
+
+            <link rel="stylesheet" type="text/css" href="${request.static_url('osmtest:static/css/proj-map.css')}" />
+            <link rel="stylesheet" type="text/css" href="${request.static_url('osmtest:static/css/proj-widgets.css')}" />
+
+    Adding the APIs to your application
+
+        The easiest is to apply the ``c2cgeoportal_create`` template to
+        create a temporary project and copy the API files from this
+        temporary project to yours::
+
+        $ cd osmtest
+        $ ./buildout/bin/pcreate -s c2cgeoportal_create \
+                /tmp/osmtest package=osmtest
+        $ cp -r /tmp/osmtest/osmtest/templates/api osmtest/templates/
+        $ cp -r /tmp/osmtest/osmtest/static/apihelp osmtest/static/
+        $ rm -rf /tmp/osmtest
+
+    Clean up (remove old API-related files)
+
+        $ cd osmtest
+        $ rm -f osmtest/static/js/api/Map.js
+        $ rm -f osmtest/templates/apihelp.html
+        $ rm -f osmtest/templates/apiloader.js
+        $ rm -f osmtest/templates/apiviewer.js
+
+    Add RewriteRule's to Apache config
+
+        The apache/wsgi.conf.in file defines RewriteRule's for shorter
+        URLs to the application's entry points.
+
+        Add the following API-related RewriteRule's:
+
+        RewriteRule ^${vars:apache-entry-point}api.js$ /${vars:instanceid}/wsgi/api.js [PT]
+        RewriteRule ^${vars:apache-entry-point}xapi.js$ /${vars:instanceid}/wsgi/xapi.js [PT]
+        RewriteRule ^${vars:apache-entry-point}xapihelp.html$ /${vars:instanceid}/wsgi/xapihelp.html [PT]
+
+        And remove this one:
+
+        RewriteRule ^${vars:apache-entry-point}apiloader.js$ /${vars:instanceid}/wsgi/apiloader.js [PT]
+
+13. Add the following lines in `apache/wsgi.conf.in` to enable short URLs
+    for the editing, mobile and admin pages:
+
+    RewriteRule ^${vars:apache-entry-point}edit/?$ /${vars:instanceid}/wsgi/edit/ [PT]
+    RewriteRule ^${vars:apache-entry-point}mobile/?$ /${vars:instanceid}/wsgi/mobile/ [PT]
+    RewriteRule ^${vars:apache-entry-point}admin/?$ /${vars:instanceid}/wsgi/admin/ [PT]
+
+14. Redlining is now supported in CGXP's Permalink.
+    The following path should be added in all root sections
+    of `jsbuild/app.cfg`:
+
+    osmtest/static/lib/cgxp/openlayers.addins/URLCompressed/lib
+
+15. CGXP's Redlining plugin (drawing tools) has been enhanced. It requires the
+    following updates:
+
+    - In ``app.cfg`` you need to replace the lines with:
+
+        CGXP/widgets/RedliningColorPicker.js
+
+    by:
+
+        CGXP/plugins/Redlining.js
+
+    - In the ``index.html`` template, in the section where the css files are
+      loaded in debug mode, you'll have to add the following code right above
+      the one for ``proj.css``:
+
+        <link rel="stylesheet" type="text/css" href="${request.static_url('osmtest:static/lib/cgxp/ext/Ext/examples/ux/css/Spinner.css')}" />
+
+16. Update the checker for the new api, in the section `check_collector` the
+    `checker_apiloader` doesn't exists anymore,
+    it's replaced by `checker_api`, and `checker_xapi`.
+
+17. The fulltextsearch web service supports a new parameter in the query
+    string, "partitionlimit". If "partitionlimit" is set to a positive number
+    the fulltextsearch web service limits the search results by layer
+    (layer_name field in the tsearch table). For example, if "partitionlimit"
+    is set to 10 and "limit" is set to 40, the response will include at most
+    10 results per layer, and at 40 results total. For this to take effect
+    in the viewer CGXP commit [*] or more recent should be used.
+
+    [*] https://github.com/camptocamp/cgxp/commit/b620dd154b55c6f14eee8fdc09abb5583615d78b
+
+18. In the file `jsbuild/app.cfg`, for file `[lang-en.js]`, in section `include`:
+    remove the line `CGXP/locale/en.js`, and add the localisation in the files:
+
+    `osmtest/static/js/Proj/Lang/en.js`:
+    "layertree": "Themes"
+
+    `osmtest/static/js/Proj/Lang/fr.js`:
+    "layertree": "Thèmes"
+
+    `osmtest/static/js/Proj/Lang/de.js`:
+    "layertree": "Themen"
+
+
+Version 1.1
+===========
+
+1. Add the following line to the jsbuild/mobile.cfg file in the include section:
+
+    OpenLayers/Control/Geolocate.js
+
+2. For the FeaturesWindow CGXP plugin we need to add the following line to the
+   jsbuild/app.cfg file in the root sections:
+
+    osmtest/static/lib/cgxp/geoext.ux/ux/FeatureSelectionModel/lib
+
+3. The admin interface relies on the js.jqueryui_selectmenu Python package,
+   which does not work with js.jquery > 1.7.1 (the Jump to... dropdown does not
+   work). c2cgeoportal 1.1 will refuse to work with/be installed alongside
+   js.jquery > 1.7.1. Just make sure js.jquery is not set to a version > 1.7.1
+   in your project's buildout config (buildout.cfg.). If it is then change that
+   to "js.jquery = 1.7.1", and execute buildout again.
+
+4. Currently there are authentication-related issues when multiple instances of
+   a c2cgeoportal application are running on the same machine. Indeed, loging
+   into one instance would log you out of from the instance you're currently
+   loged into. See <https://github.com/camptocamp/c2cgeoportal/issues/196>.
+
+   Fixing the issue requires manual changes to development.ini.in,
+   production.ini.in, and osmtest/__init__.py.
+
+   Edit development.ini.in and production.ini.in and add the following
+   variable definition to the [app:app] section:
+
+       authtkt_cookie_name = auth_tkt_${instanceid}
+
+   (It is probably a good idea to group the definitions of authtkt_secret and
+   authtkt_cookie_name together, as they're both related to authentication.)
+
+   Now edit osmtest/__init__.py to pass a `cookie_name` to the
+   `AuthTktAuthenticationPolicy` constructor:
+
+        authentication_policy = AuthTktAuthenticationPolicy(
+                settings.get('authtkt_secret'),
+                callback=defaultgroupsfinder,
+                cookie_name=settings.get('authtkt_cookie_name'))
+
+
+Version 1.0
+===========
+
+1. We create a configuration file, config.yaml includes the static
+   configuration of the application. buildout.cfg includes the execution
+   environment configuration, where environment variables are defined.
+
+   To create an initial configuration from your current configurations you
+   should:
+
+   - Rollback the CONST_buildout.cfg:
+       git checkout CONST_buildout.cfg
+
+   - If you are a child make sure that you have a variable
+       ``parent_instanceid`` defined in the ``[vars]`` section
+       of the ``buildout.cfg`` file.
+
+   - Create a file named 'config.yaml.in' that contains, for a parent:
+
+# ------------------------------------------------------------------------
+# The application's default language. This is the language
+# used if no language is specific by the application user.
+# This also defines the language used for the text search.
+default_locale_name: ${default_language}
+
+# The set of languages supported by the applications.
+TODO fix the array (comma is missing)
+available_locale_names: [${available_languages}]
+
+admin_interface:
+# Default values for the admin interface's maps.
+    map_x: ${formalchemy_default_lon}
+    map_y: ${formalchemy_default_lat}
+    map_zoom: ${formalchemy_default_zoom}
+
+# The list of functionalities that can be configured
+# through the admin interface.
+TODO fix the array (comma is missing)
+    available_functionalities: [${formalchemy_available_functionalities}]
+
+functionalities:
+# Functionalities that are accessible to anonymous
+# users.
+    anonymous: ${anonymous_functionalities}
+
+# Functionalities that are accessible to authenticated
+# users with no associated functionalities in the
+# database.
+    registered: ${registered_functionalities}
+
+# Functionalities that are made available to Mako templates.
+TODO fix the array (comma is missing)
+    available_in_templates: [${webclient_string_functionalities}, ${webclient_array_functionalities}]
+
+# Define URLs to the parent application. Only useful is
+# this application is a child application in a parent/child
+# architecture.
+external_themes_url:
+external_mapserv_url:
+
+# The "raster web services" configuration. See the "raster"
+# chapter in the integrator documentation.
+raster:
+
+# For mapserver proxy
+mapserv_url: http://$${vars:host}/$${vars:instanceid}/mapserv
+
+# For print proxy
+print_url: http://$${vars:host}:8080/print-c2cgeoportal-$${vars:instanceid}/pdf/
+
+# For base layers
+# Nothing => gets the URL using the pyramid routes
+tilecache_url:
+# ------------------------------------------------------------------------
+
+        for a child:
+# ------------------------------------------------------------------------
+# The application's default language. This is the language
+# used if no language is specific by the application user.
+# This also defines the language used for the text search.
+default_locale_name: ${default_language}
+
+# The set of languages supported by the applications.
+TODO fix the array (comma is missing)
+available_locale_names: [${available_languages}]
+
+admin_interface:
+# Default values for the admin interface's maps.
+    map_x: ${formalchemy_default_lon}
+    map_y: ${formalchemy_default_lat}
+    map_zoom: ${formalchemy_default_zoom}
+
+# The list of functionalities that can be configured
+# through the admin interface.
+TODO fix the array (comma is missing)
+    available_functionalities: [${formalchemy_available_functionalities}]
+
+functionalities:
+# Functionalities that are accessible to anonymous
+# users.
+    anonymous: ${anonymous_functionalities}
+
+# Functionalities that are accessible to authenticated
+# users with no associated functionalities in the
+# database.
+    registered: ${registered_functionalities}
+
+TODO fix the array (comma is missing)
+    available_in_templates: [${webclient_string_functionalities}, ${webclient_array_functionalities}]
+
+# Define URLs to the parent application. Only useful is
+# this application is a child application in a parent/child
+# architecture:
+external_themes_url: http://$${vars:host}/$${vars:parent_instanceid}/wsgi/themes
+external_mapserv_url: http://$${vars:host}/$${vars:parent_instanceid}/mapserv
+
+# The "raster web services" configuration. See the "raster"
+# chapter in the integrator documentation.
+raster:
+
+# For mapserver proxy
+mapserv_url: http://$${vars:host}/$${vars:instanceid}/mapserv
+
+# For print proxy
+# This value mean that we use the parent print server
+print_url: http://$${vars:host}:8080/print-c2cgeoportal-$${vars:parent_instanceid}/pdf/
+
+# For base layers
+# This value mean that we use the parent tiles
+tilecache_url: http://$${vars:host}/$${vars:parent_instanceid}/wsgi/tilecache
+# ------------------------------------------------------------------------
+
+    - Then interpretate it by running:
+        ./buildout/bin/buildout install template
+
+    - Rename the generated file as the source file:
+        mv config.yaml config.yaml.in
+
+    - In this file (config.yaml.in) there are some lines that contain
+        « TODO fix the array (comma is missing) ». This indicates that the
+        array is not correctly formatted. Fix the formatting by adding the
+        missing comma and remove the TODO lines.
+
+    - Add the config in the repository
+        git add config.yaml.in
+
+    - Add config.yaml in the .gitignore file
+
+    - In the file tilecache/tilecache.cfg.in replace:
+
+        url = ${mapserv_url}
+        by:
+        url = http://${vars:host}/${vars:instanceid}/mapserv
+
+        and
+
+        wmts_gettile = ${wmts_url}
+        by
+        wmts_gettile = http://${vars:host}/${vars:instanceid}/tilecache
+
+    - In the file mapserver/c2cgeoportal.map.in replace:
+
+        "wms_onlineresource" "http://${vars:wsgi_host}/${vars:instanceid}/wsgi/mapserv_proxy"
+        by
+        "wms_onlineresource" "http://${vars:host}/${vars:instanceid}/wsgi/mapserv_proxy"
+
+    - Add the following line in the [app:osmtest] of the production.ini.in
+            and the developement.ini.in:
+        app.cfg = %(here)s/config.yaml
+
+    - Remove the following attributes from the production.ini.in
+            developement.ini.in, an buildout.cfg files:
+        default_locale_name
+        available_languages
+        default_language
+        mapserv.url
+        print.url
+        formalchemy_default_zoom
+        formalchemy_default_lon
+        formalchemy_default_lat
+        formalchemy_available_functionalities
+        raster
+        anonymous_functionalities
+        registered_functionalities
+        webclient_string_functionalities
+        webclient_array_functionalities
+        external_themes_url
+        external_mapserv_url
+        tilecache_url
+
+    - Re apply the update scaffold to regenerate the CONST_buildout file:
+        ./buildout/bin/pcreate --interactive -s c2cgeoportal_update ../osmtest package=osmtest
+
+    - In the file ``print/templates/print.mako.in`` replace
+        ``${vars:mapserv_host}`` and ``${vars:wsgi_host}`` by ``${vars:host}``.
+
+    - In the file ``./apache/mapserver.conf.in`` remove the line
+        Allow from ${vars:mapserv_host}
+        we will use only ${vars:mapserv_allow}
+
+    - Edit ``osmtest/templates/viewer.js`` and ``osmtest/templates/edit.js`` and change
+
+          % if len(tilecache_url) == 0
+
+          to
+
+          % if not tilecache_url or len(tilecache_url) == 0:
+
+2. Theme loading with Friendly Url
+
+   It is now possible to load themes directly from a Friendly Url of the type:
+   http://www.example.com/theme/themename1/themename2[/themenamex]
+
+   The following modifications are needed:
+
+   - In viewer.js in the cgxp_layertree plugin configuration, replace:
+       defaultThemes: ["xyz"],
+     by:
+       % if permalink_themes:
+         defaultThemes: ${permalink_themes | n},
+       % else:
+         defaultThemes: ["xyz"],
+       % endif
+
+   - In index.html, replace:
+       <script type="text/javascript" src="${request.route_url('viewer')}"></script>
+     by:
+       <script type="text/javascript" src="${request.route_url('viewer')}${extra_params}"></script>
+
+   - In wsgi.conf.in, add a new RewriteRule:
+     RewriteRule ^${vars:apache-entry-point}theme/(.+)$ /${vars:instanceid}/wsgi/theme/$1 [PT]
+
+3. To add the support of WMTS layers the database should be updated by
+   standard procedure, CGXP also. We also need the ogcproxy, and to
+   use is we need to add the following line in the file
+   <project>/templates/viewer.js:
+
+        OpenLayers.ProxyHost = "${request.route_url('ogcproxy')}?url=";
+
+4. CGXP helper tools
+
+   Some javascript helpers have been added to cgxp, allowing to open internal
+   message or external html into an Ext Windows popup.
+
+   The following modification is needed:
+
+   - add "CGXP/tools/tools.js" to the 'include' list in the '[app.js]' section of
+     the 'jsbuild/app.cfg' file
+
+   If your project already used this Ext Windows popup system but with the
+   functions called from the viewer.js with the app. namespace, you can remove
+   the function from that template but you need to replace the "app." by
+   "cgxp.tools." in all the javascript calls, ie:
+   <a href="javascript:app.openInfoWindow('http://www.test.com', 'Popup title', 600, 500);">Link text</a>
+   become
+   <a href="javascript:cgxp.tools.openInfoWindow('http://www.test.com', 'Popup title', 600, 500);">Link text</a>
+
+5. Add new deploy hooks to set the databases rights.
+   cd osmtest
+   ./buildout/bin/pcreate --overwrite -s c2cgeoportal_create /tmp/osmtest package=osmtest
+   cp /tmp/osmtest/deploy/hooks/post-restore-database.in deploy/hooks/
+   chmod +x deploy/hooks/post-restore-database.in
+   rm -rf /tmp/osmtest
+
+6. HTTPS detection
+
+   If your application is accessed in HTTPS but is behind some proxies that remove the SSL encryption,
+   you can make sure that all generated URLs (CSS and Javascript files, images, MapServer requests, etc.)
+   use the HTTPS scheme by specifing to c2cgeoportal an HTTP header to test for some value. For instance:
+   - In config.yaml.in:
+       https_flag_header: X_HTTPS
+       https_flag_value: 'on'
+
+7. New raster and profile web services are now available and require some configuration.
+    For the configuration of these web services read the documentation at
+    'administrator/raster'.
+
+8. Mobile application
+
+   Version 1.0 of c2cgeoportal includes a mobile application template/scaffold.
+
+   To add a mobile application to an existing project you need to copy two
+   files from the c2cgeoportal_create scaffold, and add routes and views to the
+   project configuration. See below.
+
+   Copy config.js and mobile.cfg from c2cgeoportal_create:
+
+   $ cd osmtest
+   $ ./buildout/bin/pcreate -s c2cgeoportal_create \
+           /tmp/osmtest package=osmtest
+   $ cp /tmp/osmtest/osmtest/static/mobile/config.js \
+        osmtest/static/mobile/
+   $ cp /tmp/osmtest/jsbuild/mobile.cfg jsbuild/
+   $ rm -rf /tmp/osmtest
+
+   Add routes and views:
+
+   # mobile views and routes
+   config.add_route('mobile_index_dev', '/mobile_dev/')
+   config.add_view('c2cgeoportal.views.mobile.index',
+                   renderer='osmtest:static/mobile/index.html',
+                   route_name='mobile_index_dev')
+   config.add_route('mobile_config_dev', '/mobile_dev/config.js')
+   config.add_view('c2cgeoportal.views.mobile.config',
+                   renderer='osmtest:static/mobile/config.js',
+                   route_name='mobile_config_dev')
+   config.add_static_view('mobile_dev', 'osmtest:static/mobile')
+
+   config.add_route('mobile_index_prod', '/mobile/')
+   config.add_view('c2cgeoportal.views.mobile.index',
+                   renderer='osmtest:static/mobile/build/production/index.html',
+                   route_name='mobile_index_prod')
+   config.add_route('mobile_config_prod', '/mobile/config.js')
+   config.add_view('c2cgeoportal.views.mobile.config',
+                   renderer='osmtest:static/mobile/build/production/config.js',
+                   route_name='mobile_config_prod')
+   config.add_static_view('mobile', 'osmtest:static/mobile/build/production')
+
+   Now read http://docs.camptocamp.net/c2cgeoportal/integrator/mobile.html to
+   know how to build and customize the mobile application.
+
+9. GeoExt popup css resource in template for debug mode was missing
+   - add:
+     <link rel="stylesheet" type="text/css" href="${request.static_url('osmtest:static/lib/cgxp/geoext/resources/css/popup.css')}" />
+     in file <project>/templates/index.html
+
+10. In the CGXP print plugin config autoFit: true should be set in the "options"
+   object instead of the "outputConfig" object.
+
+   Change from:
+
+        {
+            ptype: "cgxp_print",
+            legendPanelId: "legendPanel",
+            featureGridId: "featureGrid",
+            outputTarget: "left-panel",
+            printURL: "${request.route_url('printproxy', path='')}",
+            mapserverURL: "${request.route_url('mapserverproxy', path='')}",
+            options: {
+                labelAlign: 'top',
+                defaults: {
+                    anchor:'100%'
+                }
+            },
+            outputConfig: {
+                autoFit: true
+            }
+        },
+
+    to:
+
+        {
+            ptype: "cgxp_print",
+            legendPanelId: "legendPanel",
+            featureGridId: "featureGrid",
+            outputTarget: "left-panel",
+            printURL: "${request.route_url('printproxy', path='')}",
+            mapserverURL: "${request.route_url('mapserverproxy', path='')}",
+            options: {
+                labelAlign: 'top',
+                defaults: {
+                    anchor:'100%'
+                },
+                autoFit: true
+            }
+        },
+
+11. IE9 slider issue doesn't require a compatible meta anymore.
+
+    Remove the following meta from the index.html template:
+
+    <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE8" />
+
+    And add the following lines to the jsbuild/app.cfg file:
+
+    - in the root section:
+        osmtest/static/lib/cgxp/ext.overrides
+
+    - in the include section:
+        DragTracker.js #ext.override
+
+12. Add the following line to the root section of the app.js section in jsbuild/app.cfg:
+
+    osmtest/static/lib/cgxp/dygraphs
+
+    Also add the following line in the index.html template:
+
+    <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7; IE=EmulateIE9">
+
+13. The "featureGridId" parameter has been renamed to "featureProvider" in the
+    print config.
+
+14. In case you're using the cgxp_querier plugin, you need to replace the
+    "featureType" config option by "featureTypes" which is now an array:
+
+    - featureType: 'the_layer',
+    + featureTypes: ['the_layer'],
+
+15. Update the print. A new file is required. To get it do the following:
+
+    ./buildout/bin/pcreate -s c2cgeoportal_create /tmp/osmtest package=osmtest
+    cp /tmp/osmtest/print/WEB-INF/classes/spring-application-context.xml \
+            print/WEB-INF/classes
+    git add print/WEB-INF/classes/spring-application-context.xml
+    rm -rf /tmp/osmtest
+
+16. The cgxp-install part is now deactivated by default, so if you still use
+    SVN, you have to add it back in your ``buildout.cfg`` file, section
+    ``[buildout]``. Since this part needs to be run before jsbuild and cssbuild,
+    you have to override the whole parts list. For instance:
+
+        parts = eggs
+                activate
+                template
+                modwsgi
+                cgxp-install
+                jsbuild
+                cssbuild
+                po2mo
+                print-template
+                print-war
+
+    If you are on Git the this line isn't needed any more in
+    your ``buildout.cfg`` file, section ``[buildout]``:
+
+        parts -= cgxp-install
+
+17. It is recommended to edit the project's ``development.ini.in`` and
+    ``production.ini.in`` files and change ``[app:osmtest]`` to
+    ``[app:app]``, and in the section ``[pipeline:main]`` replace
+    ``pipeline = weberror fanstatic osmtest`` by
+    ``pipeline = weberror fanstatic app``. In this way the ``manage_db``
+    and ``manage_users`` commands can be used without specifying any
+    application name using the ``--app-name`` switch - "app" is the default.
+    This change is recommended, but optional.
+
+    You should also modify your create_db script like this commit:
+        https://github.com/camptocamp/c2cgeoportal/commit/8ae339c526719de953027beb72f5e1b649a93780
+
+18. Add the FUNCTIONALITY var in viewer.js and use it in the map
+    opacity slider config.
+
+        var FUNCTIONALITY = ${functionality | n};
+
+    and
+
+        {
+            ptype: "cgxp_mapopacityslider",
+            defaultBaseLayerRef: FUNCTIONALITY.default_basemap[0]
+        }
+
+    Make sure there's a default_basemap set. default_basemap should probably
+    be set for anonymous users in config.yaml.in:
+
+        functionalities:
+            anonymous:
+                print_template:
+                - 1 A4 portrait
+                - 2 A3 landscape
+                default_basemap: plan
+
+19. The file 'deploy/hooks/post-restore-code' is unneeded, it should be removed.
+
+20. In the file '.gitignore' the following lines should be added:
+    *.pyc
+    deploy/hooks/post-restore-database
+    osmtest/static/mobile/resources/sass/.sass-cache
+    osmtest/static/mobile/archive/
+    osmtest/static/mobile/build/
+    osmtest/static/mobile/openlayers-mobile.js
+
+21. Improve the checker an add a check collector, see integator/check in the
+    documentation to configure them.
+    Something like this can be removed in the <project>/__init__.py
+    config.add_settings({'check_print_template': '1 A4 portrait'})
+    config.add_settings({'check_FullTextSearch': 'te'})
+
+
+Version 0.7
+===========
+
+1. The "pserve" command should now be used instead of "paster serve".
+
+   For "pserve" to work a few simple modifications are required in
+   development.ini.in, production.ini.in, print/config.yaml.in and
+   print/templates/print.mako.in.
+
+   - In development.ini.in and production.ini.in and replace "use
+     = egg:Paste#http" by "use = egg:waitress#main".
+
+   - In development.ini.in, production.ini.in, print/config.yaml.in, and
+     print/templates/print.mako.in replace "${vars:paster_port}" by
+     "${vars:waitress_port}".
+
+   And to be able to use "pserve" you need to add "waitress" to
+   the "install_requires" list defined in the application's
+   "setup.py" file. For example:
+
+   install_requires=[
+       'c2cgeoportal',
+       'configobj',
+       'pyramid_debugtoolbar',
+       'waitress'
+   ],
+
+2. Display directly the loading panel introduce those needed changes:
+    * In the +package+/templates/viewer.js includes all the code in:
+        Ext.onReady(function() {
+            // all the code
+        });
+    * In the +package+/templates/index.html do this replacement:
+      -        <script type="text/javascript">
+      -            Ext.onReady(function() {
+      -                <%include file="viewer.js" />
+      -            });
+      -        </script>
+      +        <script type="text/javascript" src="${request.route_url('viewer')}"></script>
+    * Do the same for the edit.js/edit.html
+
+3. If missing, add a MIME type to the "jpeg" OUTPUTFORMAT section
+   in mapserver/c2cgeoportal.map.in:
+   MIMETYPE "image/jpeg"
+
+4. Mapfile performance tips:
+    * To get lighter PNG outputs, use the following outputformat:
+      OUTPUTFORMAT
+          NAME png
+          DRIVER AGG/PNG
+          MIMETYPE "image/png"
+          IMAGEMODE RGBA
+          EXTENSION "png"
+          FORMATOPTION "INTERLACE=OFF"
+          FORMATOPTION "QUANTIZE_DITHER=OFF"
+          FORMATOPTION "QUANTIZE_FORCE=ON"
+          FORMATOPTION "QUANTIZE_COLORS=256"
+      END
+    * For PostGIS layers, make sure to use:
+      PROCESSING "CLOSE_CONNECTION=DEFER"
+
+
+Version 0.6
+===========
+
+Editing Interface
+-----------------
+
+c2cgeoportal 0.6 features an editing interface. To make the editing interface
+work in an existing project several steps are required:
+
+1. The editing interface relies on the CGXP Editing plugin. This plugin is
+   available as of commit 58c931d [1] of CGXP. So CGXP should be updated to, at
+   least, this commit in the application. See [2] to know how to update CGXP.
+
+   [1] <https://github.com/camptocamp/cgxp/commit/58c931de2f6397ffba223b4305d0b10a18413032>
+   [2] <http://docs.camptocamp.net/c2cgeoportal/integrator/update_application.html#update-cgxp>
+
+2. An [edit.js] section should be added to jsbuild/app.cfg (notice the CHANGE
+   ME IF NEEDED comment):
+
+   [edit.js]
+   root =
+       osmtest/static/lib/cgxp/core/src/script
+       osmtest/static/lib/cgxp/ext
+       osmtest/static/lib/cgxp/geoext/lib
+       osmtest/static/lib/cgxp/openlayers/lib
+       osmtest/static/lib/cgxp/openlayers.addins/GoogleEarthControl/lib
+       osmtest/static/lib/cgxp/openlayers.addins/Spherical/lib
+       osmtest/static/lib/cgxp/gxp/src/script
+       osmtest/static/lib/cgxp/proj4js
+       osmtest/static/lib/cgxp/geoext.ux/ux/Measure/lib
+       osmtest/static/lib/cgxp/geoext.ux/ux/SimplePrint/lib
+       osmtest/static/lib/cgxp/geoext.ux/ux/FeatureEditing/lib
+       osmtest/static/lib/cgxp/sandbox
+       osmtest/static/lib/cgxp/styler/lib
+       osmtest/static/lib/cgxp/ext.ux/TwinTriggerComboBox
+       osmtest/static/lib/cgxp/ext.ux/ColorPicker
+       osmtest/static/lib/cgxp/ext.ux/base64
+       osmtest/static/js
+   first =
+       Ext/adapter/ext/ext-base.js
+       Ext/ext-all.js
+       OpenLayers/SingleFile.js
+       OpenLayers/Console.js
+       OpenLayers/BaseTypes.js
+       OpenLayers/BaseTypes/Class.js
+       OpenLayers/BaseTypes/Pixel.js
+       OpenLayers/BaseTypes/Bounds.js
+       OpenLayers/BaseTypes/LonLat.js
+       OpenLayers/BaseTypes/Element.js
+       OpenLayers/BaseTypes/Size.js
+       OpenLayers/Util.js
+       OpenLayers/Lang.js
+       proj4js/lib/proj4js.js
+   exclude =
+       GeoExt.js
+       GeoExt/SingleFile.js
+   include =
+       EPSG21781.js #proj4js (CHANGE ME IF NEEDED)
+       util.js #GXP
+       widgets/Viewer.js #GXP
+       CGXP/plugins/Editing.js
+       CGXP/plugins/Login.js
+       CGXP/plugins/ThemeSelector.js
+       CGXP/plugins/LayerTree.js
+       CGXP/plugins/MenuShortcut.js
+       CGXP/widgets/MapPanel.js
+       OpenLayers/Control/Navigation.js
+       OpenLayers/Control/KeyboardDefaults.js
+       OpenLayers/Control/PanZoomBar.js
+       OpenLayers/Control/ArgParser.js
+       OpenLayers/Control/Attribution.js
+       OpenLayers/Control/ScaleLine.js
+       OpenLayers/Control/MousePosition.js
+       OpenLayers/Control/OverviewMap.js
+       OpenLayers/Control/NavigationHistory.js
+       OpenLayers/Layer/Vector.js
+       OpenLayers/Renderer/SVG.js
+       OpenLayers/Renderer/VML.js
+
+3. Optionally you can add the line
+   osmtest/static/lib/cgxp/geoext.ux/ux/FeatureEditing/lib to the "root"
+   list of every [*.js] section of jsbuild/app.cfg. This is optional because
+   only the editing interface (edit.js) should require scripts from this
+   directory. But it may be a good idea to have every [*.js] section use the
+   same "root" list.
+
+4. You need to add two Mako templates to osmtest/templates, namely edit.html
+   and edit.js. These files are in the c2cgeoportal_create paster template, so
+   they're not automatically added to the application source tree when the
+   c2cgeoportal_update template is applied. The easiest way to get them is to
+   apply the c2cgeoportal_create directory outside the existing application,
+   and copy the files from the newly created directory to the application:
+
+   cd osmtest
+   ./buildout/bin/paster create --template c2cgeoportal_create \
+       --output-dir=/tmp/osmtest package=osmtest
+   cp /tmp/osmtest/osmtest/templates/edit.html osmtest/templates/
+   cp /tmp/osmtest/osmtest/templates/edit.js osmtest/templates/
+   rm -rf /tmp/osmtest
+
+5. SQL queries in the DATA properties should be changed in the mapfile for the
+   editable layers. They should use the new "mapfile_data_subselect" Buildout
+   variable. See the administrator mapfile documentation.
+
+6. Papyrus 0.9 is required. See below.
+
+7. GeoAlchemy 0.7 is required. See below.
+
+
+Other changes
+-------------
+
+1. c2cgeoportal 0.6 requires Papyrus 0.9, so the version of Papyrus should be
+   set to 0.9 on the buildout configuration of the c2cgeoportal project
+   (section [versions]).
+
+2. c2cgeoportal 0.6 requires GeoAlchemy 0.7. So GeoAlchemy should be set to
+   0.7 in the project's buildout configuration.
+
+3. In production.ini.in and development.ini.in jsbuild_root_dir should now be
+   set to ${buildout:directory}:
+
+   jsbuild_root_dir = ${buildout:directory}
+
+4. To be able to use the AddKMLFile CGXP plugin (cgxp_addkmlfile) the directory
+   osmtest/static/lib/cgxp/ext.ux/base64 should be a "root" in each [*.js]
+   section of jsbuild/app.cfg. Example:
+
+    [app.js]
+    root =
+        osmtest/static/lib/cgxp/core/src/script
+        osmtest/static/lib/cgxp/ext
+        osmtest/static/lib/cgxp/geoext/lib
+        osmtest/static/lib/cgxp/openlayers/lib
+        osmtest/static/lib/cgxp/openlayers.addins/GoogleEarthControl/lib
+        osmtest/static/lib/cgxp/openlayers.addins/Spherical/lib
+        osmtest/static/lib/cgxp/gxp/src/script
+        osmtest/static/lib/cgxp/proj4js
+        osmtest/static/lib/cgxp/geoext.ux/ux/Measure/lib
+        osmtest/static/lib/cgxp/geoext.ux/ux/SimplePrint/lib
+        osmtest/static/lib/cgxp/geoext.ux/ux/FeatureEditing/lib
+        osmtest/static/lib/cgxp/sandbox
+        osmtest/static/lib/cgxp/styler/lib
+        osmtest/static/lib/cgxp/ext.ux/TwinTriggerComboBox
+        osmtest/static/lib/cgxp/ext.ux/ColorPicker
+        osmtest/static/lib/cgxp/ext.ux/base64
+        osmtest/static/js
+
+5. To be able to install c2cgeoportal applications behind proxies with limited
+   access to the outside world we had to patch Distribute and Buildout. See
+   <https://github.com/camptocamp/c2cgeoportal/issues/62> for more details.
+
+   If your application is behind a proxy which can access pypi.camptocamp.net
+   only then it is required to use the patched versions of Distribute and
+   Buildout. If your application is not behind a proxy it is recommended.
+
+   To change to the patched versions of Distribute and Buildout follow these
+   steps:
+
+   - Edit CONST_buildout.cfg and verify that it has an allow-hosts option set
+     to pypi.camptocamp.net.
+
+   - Remove the Distribute and Buildout eggs from the buildout/eggs dir:
+
+     rm -rf buildout/eggs/distribute-0.6.14* buildout/eggs/zc.buildout-1.5.2*
+
+   - Run bootstrap.py with specific options to install the patched versions of
+     Buildout and Distribute:
+
+     python bootstrap.py --version 1.5.2 --distribute --download-base \
+       http://pypi.camptocamp.net/distribute-0.6.22_fix-issue-227/ --setup-source \
+       http://pypi.camptocamp.net/distribute-0.6.22_fix-issue-227/distribute_setup.py
+
+   - Run the usual buildout/bin/buildout command.
+
+6. In jsbuild/app.cfg, replace GoogleEarthControl by GoogleEarthView to
+   have the following entry:
+        osmtest/static/lib/cgxp/openlayers.addins/GoogleEarthView/lib
+   And add the following entries to api.js, and all language files
+   (like en.js, fr.js, de.js, ...) to have all identical root:
+        osmtest/static/lib/cgxp/openlayers.addins/GoogleEarthView/lib
+        osmtest/static/lib/cgxp/openlayers.addins/Spherical/lib
+
+7. Templates modifications:
+
+   The base templates are deprecated, to get the new version do
+   (Careful: this will overwrite your changes):
+       cd osmtest
+       ./buildout/bin/paster create --template c2cgeoportal_create \
+           --output-dir=/tmp/osmtest package=osmtest
+       cp /tmp/osmtest/osmtest/templates/apihelp.html osmtest/templates/
+       cp /tmp/osmtest/osmtest/templates/apiloader.html osmtest/templates/
+       cp /tmp/osmtest/osmtest/templates/apiviewer.html osmtest/templates/
+       cp /tmp/osmtest/osmtest/templates/index.html osmtest/templates/
+       cp /tmp/osmtest/osmtest/templates/viewer.js osmtest/templates/
+       rm -rf /tmp/osmtest
+
+   Notes:
+
+      * The viewer layout has changed to ease the integration of the Google Earth plugin.
+      * A null value for the user's map extent is now permitted.
+      * The jsextent property of role is renamed to json_extent.
+
+8. Other changes to jsbuild/app.cfg are recommended. They are even required if
+   you added an edit.js section as indicated in the "Editing Interface" section
+   above. Your application's jsbuild/app.cfg most probably adds
+   language-related files into app.js and api.js, which it should not. The only
+   language-related file that should be included in app.js, edit.js and api.js
+   is OpenLayers/Lang.js. The other language-related files should go in the
+   lang-*.js builds.  See this diff
+   https://github.com/camptocamp/c2cgeoportal/pull/105/files and
+   https://github.com/camptocamp/c2cgeoportal/pull/166/files to see how app.cfg
+   was changed in the create template, that should help you fix your
+   application's app.cfg. The note explaining why OpenLayers/Lang.js should be
+   included in the main build may be of interest.
+
+
+Version 0.5 (and before)
+========================
+
+-------------------------------
+Mon, 27 Feb 2012 14:15:14 +0100
+
+We have release JSTools 0.6 on pypi.python.org. This version includes bug
+fixes, for Windows in particular. c2cgeoportal 0.5 requires JSTools 0.6, so the
+version of JSTools should be set to 0.6 in the buildout configuration of
+c2cgeoportal projects (section [versions]).
+
+-------------------------------
+Tue, 31 Jan 2012 13:59:45 +0100
+
+Because OpenLayers has been upgraded, one must replace
+OpenLayers/Layer/XYZ.js
+by
+OpenLayers/Layer/OSM.js
+in the [app.js] "include" section of jsbuild/app.cfg.
+
+-------------------------------
+Tue, 31 Jan 2012 14:41:44 +0100
+
+In the <package>/template/viewer.js file, in the block 'viewer_layers'
+remove the last comma for IE, see commit 11d373b.
+
+-------------------------------
+Thu, 26 Jan 2012 13:21:20 +0100
+
+Not required but recommended: you can edit your project's development.ini.in
+and production.ini.in files and remove the [app:c2cgeoportal] section and its
+content (one line). This section was needed for c2cgeoportal's manage_db and
+create_db scripts to know the project package name, but it's not needed
+anymore. For example, the manage_db script now has --app-name and --app-config
+options.
+
+-------------------------------
+
+Thu, 12 Jan 2012 13:35:23 +0100
+
+Due to wrong moving the files in 'print/print'. If exists the folder
+'print/print/WEB-INF/' should be moved to 'print/WEB-INF/' and the
+folder 'print/print/' should be removed.
+
+-------------------------------
+
+Wed, 14 Dec 2011 17:49:36 +0100
+
+This migration concerns the changes reorganizing the "create" and "update"
+paste templates.
+
+* update the version of c2cgeoportal requirement in the project setup.py
+so that c2cgeoportal dependency version is == 0.3.2. You should have:
+    install_requires=[
+        'PasteScript',
+        'c2cgeoportal==0.3.2',
+    ],
+Then launch buildout to retrieve this new version of the egg c2cgeoportal.
+
+* apply the 'update' template
+
+* the manage_db script is now handled by c2cgeoportal again (this revert
+the change introduced in c2cgeoportal v0.3.1):
+  * update console_scripts entry points in the project setup.py, you should
+  now have:
+       'console_scripts': [
+           'create_db = <package_name>.scripts.create_db:main',
+       ],
+  * remove the script manage_db from the project:
+    $$ svn rm <package_name>/scripts/CONST_manage_db.py
+
+* rename the following files:
+    $$ svn mv apache/CONST_frontend.conf.in apache/frontend.conf.in
+    $$ svn mv apache/CONST_mapserver.conf.in apache/mapserver.conf.in
+    $$ svn mv apache/CONST_README.txt.in apache/README.txt.in
+    $$ svn mv apache/CONST_tilecache.conf.in apache/tilecache.conf.in
+    $$ svn mv apache/CONST_wsgi.conf.in apache/wsgi.conf.in
+    $$ svn mv CONST_development.ini.in development.ini.in
+    $$ svn mv CONST_production.ini.in production.ini.in
+These files used to be generated by the update template, they're now generated
+by the create template, this is why the CONST_ prefix is removed.
+You can also update the svn:ignore property appropriately.
+
+* add a .httpauth file in the project directory (if not already existing),
+which contains the required credentials to access to our pypi internal server.
+This file is generated when the 'create' template is applied so you have to
+create it by hand.
+This file should contain the following line:
+    "C2C internal pypi server, http://pypi.camptocamp.net/internal-pypi, <login>, <password>"
+(where <login> and <password> are to be replaced by the the Camptocamp internal
+pypi server login/password)
+
+-------------------------------
+
+Wed, 14 Dec 2011 17:17:56 +0100
+
+The files jsbuild/CONST_app.cfg and jsbuild/app.cfg should be merged together.
+Finally jsbuild/CONST_app.cfg should be removed and all jsbuild configuration
+should sit in jsbuild/app.cfg.
+
+-------------------------------
+
+/!\ ATTENTION:
+Note that you cannot upgrade to c2cgeoportal version >= 0.3.2 directly.
+You have to upgrade to v0.3.1 first, see below.
+
+-------------------------------
+
+VERSION 0.3.1
+
+Thu, 08 Dec 2011 10:00:00 +0100
+
+This migration concerns the changes about distributing c2cgeoportal as an egg.
+
+Once project is up to date (svn update) and the 'update' template has been
+applied, the project should also be updated in the following ways:
+
+* remove svn:externals to c2cgeoportal and rm -rf c2cgeoportal directory
+
+* update console_scripts entry points in the project setup.py so that script
+manage_db now refers to <package_name>.scripts.CONST_manage_db:main. You should
+have:
+       'console_scripts': [
+           'create_db = <package_name>.scripts.create_db:main',
+           'manage_db = <package_name>.scripts.CONST_manage_db:main',
+       ],
+
+* update the version of c2cgeoportal requirement in the project setup.py
+so that c2cgeoportal dependency version is == 0.3.1. You should have:
+    install_requires=[
+        'PasteScript',
+        'c2cgeoportal==0.3.1',
+    ],
+
+* add a migrate.cfg file in
+MyProject/myproject/CONST_migration/migrate.cfg
+This migrate.cfg file is generated when the 'create' template is applied so
+you have to create it by hand. The version_table parameter value should
+be set to "version_<package_name>".
+
+The content of the migrate.cfg file should look like this:
+
+    [db_settings]
+    # Used to identify which repository this database is versioned under.
+    # You can use the name of your project.
+    repository_id=c2cgeoportal
+
+    # The name of the database table used to track the schema version.
+    # This name shouldn't already be used by your project.
+    # If this is changed once a database is under version control, you'll need to
+    # change the table name in each database too.
+    version_table=version_<package_name>
+
+    # When committing a change script, Migrate will attempt to generate the
+    # sql for all supported databases; normally, if one of them fails - probably
+    # because you don't have that database installed - it is ignored and the
+    # commit continues, perhaps ending successfully.
+    # Databases in this list MUST compile successfully during a commit, or the
+    # entire commit will fail. List the databases your application will actually
+    # be using to ensure your updates to that database work properly.
+    # This must be a list; example: ['postgres','sqlite']
+    required_dbs=[]
+
+* rename the version table to match the name set in the version_table
+parameter:
+    ALTER TABLE <old_name> RENAME TO version_<package_name>
+with <old_name> replaced by the old name of the version table which is
+certainly the application's db schema name.
+
+-------------------------------
+
+Wed, 14 Dec 2011 17:00:24 +0100
+
+Implements group restriction to acces to the admin interface.
+
+To continue to acces to the admin interface you should, in the file
+'<project>/__init__.py' replaxe the line
+-     authentication_policy = AuthTktAuthenticationPolicy(settings.get('authtkt_secret'))
+by:
++     authentication_policy = AuthTktAuthenticationPolicy(settings.get('authtkt_secret'),
++            callback=defaultgroupsfinder)
+and add the import:
++ from c2cgeoportal.resources import defaultgroupsfinder.
+
+-------------------------------
+
+Wed, 07 Dec 2011 15:10:57 +0100
+
+Replace the CONST_README.txt by the documentation.
+Add a CONST_TIP.txt to have some usefull commands.
+Than you can do to remove the old CONST_README.txt
+$$ svn rm CONST_README.txt.in
+
+-------------------------------
+
+Mon, 28 Nov 2011 17:43:25 +0100
+
+Added apiloader.js in the project templates directory.
+
+-------------------------------
+
+Mon, 28 Nov 2011 16:13:41 +0100
+
+Added missing encoder in the mapfile. In MAP/WEB/METADATA added:
+    "wfs_encoding" "UTF-8"
+
+-------------------------------
+
+Mon, 28 Nov 2011 14:51:37 +0100
+
+CGXP mode from SVN to GIT(hub).
+Now we use a buildout task to do the clone.
+
+To update your project do:
+$$ svn propdel svn:externals osmtest/static/lib/
+$$ rm -rf osmtest/static/lib/cgxp
+$$ svn propset svn:ignore cgxp osmtest/static/lib/
+
+-------------------------------
+
+Mon, 28 Nov 2011 11:42:25 +0100
+
+Added WFSGetFeature to query feature in a BBOX but desable by default.
+-------------------------------
+
+Mon, 21 Nov 2011 12:58:23 +0100
+
+Added a disclaimer cgxp plugin
+
+Added CGXP/plugins/Disclaimer.js to jsbuild/app.cfg so that the Disclaimer
+plugin can be used.
+Note that the database should also be updated for the disclaimer plugin to
+work correctly.
+-------------------------------
+
+Thu, 17 Nov 2011 11:24:25 +0100
+
+Added block tools_additional in viewer_base.js
+-------------------------------
+
+Wed, 16 Nov 2011 16:11:54 +0100
+
+Fixed gettext config in order to take into account translations from the project templates
+-------------------------------
+
+Wed, 09 Nov 2011 17:15:13 +0100
+
+Extended GeoExt.MapPanel to override the getState method
+
+Add CGXP/widgets/MapPanel.js in app.cfg
+-------------------------------
+
+Mon, 07 Nov 2011 10:05:22 +0100
+
+Added a colorpicker to the redlining tool.
+
+In the jsbuild/app.cfg, CGXP/plugins/Redlining.js should be replaced by
+CGXP/widgets/RedliningColorPicker.js for the new colorpicker or by
+CGXP/widgets/RedliningCombo.js to have the old combobox.
+

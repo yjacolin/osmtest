@@ -1,0 +1,3 @@
+[submodule "osmtest/static/lib/cgxp"]
+	path = osmtest/static/lib/cgxp
+	url = https://github.com/camptocamp/cgxp.git
